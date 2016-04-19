@@ -104,7 +104,7 @@ func Description(code, ticker, coupon, maturity string) (d string, err error) {
 		details = append(details, fmt.Sprintf("%0.02f%%", rate))
 	}
 	if len(maturity) > 0 {
-		details = append(details, maturity)
+		details = append(details, strings.Replace(maturity, "-", "/", -1))
 	}
 	if len(details) > 0 {
 		return strings.Join([]string{itd, strings.Join(details, " ")}, "  "), nil
@@ -135,4 +135,20 @@ type Security struct {
 	SEDOL         string `json:",omitempty"`
 	Ticker        string `json:",omitempty"`
 	Description   string `json:",omitempty"`
+}
+
+// ffjson: noencoder
+type Request struct {
+	Keys []string
+}
+
+// ffjson: nodecoder
+type Response struct {
+	Results map[string]*Security
+}
+
+func NewResponse() *Response {
+	return &Response{
+		Results: make(map[string]*Security),
+	}
 }

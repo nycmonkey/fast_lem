@@ -1,33 +1,32 @@
 package main
 
 import (
-	"encoding/csv"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
-	"runtime"
-	"strings"
 	"sync"
 	"time"
 
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/transform"
-
 	"github.com/boltdb/bolt"
-	"github.com/golang/snappy"
 	"github.com/nycmonkey/fast_lem"
-	"github.com/pquerna/ffjson/ffjson"
 )
 
 var (
-	source string
-	dbfile string
-	wg     = new(sync.WaitGroup)
+	source    string
+	dbfile    string
+	batchSize int
+	port      int
+	wg        = new(sync.WaitGroup)
+	storage   fast_lem.Storage
 )
 
 func init() {
+	flag.IntVar(&batchSize, "batch", 1000, "batch size for storing records")
+	flag.IntVar(&port, "port", 8888, "batch size for storing records")
 	flag.StringVar(&source, "source", "data.csv", "path to the source data")
 	flag.StringVar(&dbfile, "output", "data.db",
 		"path to a boltdb database where the data will be stored")
@@ -35,8 +34,9 @@ func init() {
 }
 
 const (
-	batchSize  = 1000
-	bucketName = `Securities`
+	bucketName         = `SecuritiesByCusip`
+	isinMappingBucket  = `CUSIPByISIN`
+	sedolMappingBucket = `CUSIPBySEDOL`
 )
 
 const (
@@ -65,15 +65,10 @@ func ReadData(c chan []*fast_lem.Security) {
 		log.Fatalln(err)
 	}
 	defer data.Close()
-	utf8 := transform.NewReader(data, charmap.Windows1252.NewDecoder())
-	cleanCSV := transform.NewReader(utf8, &fast_lem.QuoteEscaper{})
-	r := csv.NewReader(cleanCSV)
+	r := fast_lem.NewReader(data)
 	r.FieldsPerRecord = 17
-	r.LazyQuotes = true
-	r.Comma = '|'
 	var row []string
 	row, err = r.Read()
-	fmt.Println(strings.Join(row, " #@#@ "))
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -108,50 +103,36 @@ func ReadData(c chan []*fast_lem.Security) {
 	close(c)
 }
 
-func PersistData(c chan []*fast_lem.Security, db *bolt.DB) {
-	for work := range c {
-		err := db.Batch(func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte(bucketName))
-			for _, s := range work {
-				bytes, err := ffjson.Marshal(s)
-				smaller := snappy.Encode(nil, bytes)
-
-				os.Stdout.Write(bytes)
-				os.Stdout.Write([]byte("\r\n"))
-				if err != nil {
-					return err
-				}
-				if len(s.CUSIP) > 0 {
-					err = b.Put([]byte(s.CUSIP), smaller)
-					if err != nil {
-						return err
-					}
-				}
-				if len(s.ISIN) > 0 {
-					err = b.Put([]byte(s.ISIN), smaller)
-					if err != nil {
-						return err
-					}
-				}
-				if len(s.SEDOL) > 0 {
-					err = b.Put([]byte(s.SEDOL), smaller)
-					if err != nil {
-						return err
-					}
-				}
-			}
-			return nil
-		})
+func PersistData(c chan []*fast_lem.Security) {
+	var err error
+	for securities := range c {
+		err = storage.Store(securities...)
 		if err != nil {
 			log.Fatalln(err)
 		}
 	}
 	wg.Done()
+	return
+}
+
+func checkKnownValue() (string, error) {
+	var ISIN = `US003554K355`
+	var EntityID = `071S60-E`
+	response, err := storage.Get(ISIN)
+	log.Printf("response: %+v\n", response)
+	if err != nil {
+		return "", err
+	}
+	security := response.Results[ISIN]
+	log.Printf("security: %+v\n", security)
+	if security.LegalEntityID != EntityID {
+		return "", errors.New("Unexpected entity ID: " + security.LegalEntityID)
+	}
+	return `Test OK: ` + ISIN + ` => ` + fmt.Sprintf("%+v", security), nil
 }
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
-	c := make(chan []*fast_lem.Security, 20)
+	c := make(chan []*fast_lem.Security, 2)
 	var db *bolt.DB
 	var err error
 	db, err = bolt.Open(dbfile, 0600, &bolt.Options{Timeout: 1 * time.Second})
@@ -159,35 +140,20 @@ func main() {
 		log.Fatalln(err)
 	}
 	defer db.Close()
-	db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(bucketName))
-		if err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
-		return nil
-	})
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go PersistData(c, db)
+	storage, err = fast_lem.NewStorage(db)
+	if err != nil {
+		log.Fatalln(err)
 	}
+	wg.Add(1)
+	go PersistData(c)
 	go ReadData(c)
 	wg.Wait()
-	err = db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketName))
-		v := b.Get([]byte(`31376XVZ8`))
-		if v == nil {
-			log.Println("Nothing there!")
-		}
-		if v != nil {
-			var js []byte
-			js, err = snappy.Decode(nil, v)
-			if err != nil {
-				log.Println(err)
-			}
-			os.Stdout.Write(js)
-			os.Stdout.Write([]byte("\r\n"))
-		}
-		return nil
-	})
+	sanity_check, err := checkKnownValue()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	fmt.Println(sanity_check)
+	http.HandleFunc("/query", storage.QueryHandler)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
 	return
 }
