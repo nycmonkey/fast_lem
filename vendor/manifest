@@ -1,0 +1,21 @@
+{
+	"version": 0,
+	"dependencies": [
+		{
+			"importpath": "github.com/golang/snappy",
+			"repository": "https://github.com/golang/snappy",
+			"vcs": "git",
+			"revision": "774a97396f7bfa4165e9dcf4bfa0747ea3edcc02",
+			"branch": "master",
+			"notests": true
+		},
+		{
+			"importpath": "github.com/pquerna/ffjson",
+			"repository": "https://github.com/pquerna/ffjson",
+			"vcs": "",
+			"revision": "7327d038fae6927740461371efe7f330c23c3e5f",
+			"branch": "master",
+			"notests": true
+		}
+	]
+}

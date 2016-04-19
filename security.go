@@ -1,3 +1,4 @@
+//go:generate ffjson $GOFILE
 package fast_lem
 
 import (
@@ -84,29 +85,26 @@ func IssueTypeDesc(code string) (desc string, err error) {
 	}
 }
 
-type EDMSecurityRecord struct {
-	CUSIP, ISIN, SEDOL, Ticker, EntityID, IssueTypeCode, CouponRate, MaturityDate string
-}
-
-func (r EDMSecurityRecord) Description() (desc string, err error) {
+func Description(code, ticker, coupon, maturity string) (d string, err error) {
 	var itd string
-	itd, err = IssueTypeDesc(r.IssueTypeCode)
+	var rate float64
+	var details []string
+	itd, err = IssueTypeDesc(code)
 	if err != nil {
 		return
 	}
-	var details []string
-	if len(r.Ticker) > 0 {
-		details = append(details, r.Ticker)
+	if len(ticker) > 0 {
+		details = append(details, ticker)
 	}
-	if len(r.CouponRate) > 0 {
-		rate, ohShit := strconv.ParseFloat(r.CouponRate, 32)
-		if ohShit != nil {
-			panic(ohShit)
+	if len(coupon) > 0 {
+		rate, err = strconv.ParseFloat(coupon, 64)
+		if err != nil {
+			return
 		}
 		details = append(details, fmt.Sprintf("%0.02f%%", rate))
 	}
-	if len(r.MaturityDate) > 0 {
-		details = append(details, r.MaturityDate)
+	if len(maturity) > 0 {
+		details = append(details, maturity)
 	}
 	if len(details) > 0 {
 		return strings.Join([]string{itd, strings.Join(details, " ")}, "  "), nil
@@ -114,17 +112,18 @@ func (r EDMSecurityRecord) Description() (desc string, err error) {
 	return itd, nil
 }
 
-func (r EDMSecurityRecord) Transform() *Security {
-	desc, err := r.Description()
+func New(cusip, isin, sedol, ticker, entityID, issueTypeCode, coupon,
+	maturity string) (s *Security) {
+	desc, err := Description(issueTypeCode, ticker, coupon, maturity)
 	if err != nil {
 		desc = "Description not available"
 	}
 	return &Security{
-		LegalEntityID: r.EntityID,
-		CUSIP:         r.CUSIP,
-		ISIN:          r.ISIN,
-		SEDOL:         r.SEDOL,
-		Ticker:        r.Ticker,
+		LegalEntityID: entityID,
+		CUSIP:         cusip,
+		ISIN:          isin,
+		SEDOL:         sedol,
+		Ticker:        ticker,
 		Description:   desc,
 	}
 }
