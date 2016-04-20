@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -16,19 +15,16 @@ import (
 )
 
 var (
-	source    string
-	dbfile    string
-	batchSize int
-	port      int
-	wg        = new(sync.WaitGroup)
-	storage   fast_lem.Storage
+	source      string
+	dbfile      string
+	wg          = new(sync.WaitGroup)
+	storage     fast_lem.Storage
+	recordCount int
 )
 
 func init() {
-	flag.IntVar(&batchSize, "batch", 1000, "batch size for storing records")
-	flag.IntVar(&port, "port", 8888, "batch size for storing records")
 	flag.StringVar(&source, "source", "data.csv", "path to the source data")
-	flag.StringVar(&dbfile, "output", "data.db",
+	flag.StringVar(&dbfile, "output", "../db/lem.db",
 		"path to a boltdb database where the data will be stored")
 	flag.Parse()
 }
@@ -59,7 +55,7 @@ const (
 	ColumnMaturityDate
 )
 
-// ReadData reads Security data from source and pushes batches 
+// ReadData reads Security data from source and pushes batches
 func ReadData(c chan *fast_lem.Security) {
 	data, err := os.Open(source)
 	if err != nil {
@@ -81,6 +77,7 @@ func ReadData(c chan *fast_lem.Security) {
 			}
 			log.Fatalln(err)
 		}
+		recordCount++
 		security := fast_lem.New(row[ColumnCUSIP],
 			row[ColumnISIN],
 			row[ColumnSEDOL],
@@ -109,7 +106,10 @@ func checkKnownValue() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	security := response.Results[ISIN]
+	if len(response) < 1 {
+		return "", errors.New("Response was empty")
+	}
+	security := response[0]
 	if security.LegalEntityID != EntityID {
 		return "", errors.New("Unexpected entity ID: " + security.LegalEntityID)
 	}
@@ -118,7 +118,7 @@ func checkKnownValue() (string, error) {
 
 func main() {
 	start := time.Now()
-	c := make(chan *fast_lem.Security, 100000)
+	c := make(chan *fast_lem.Security, 20000)
 	var db *bolt.DB
 	var err error
 	db, err = bolt.Open(dbfile, 0600, &bolt.Options{Timeout: 1 * time.Second})
@@ -131,18 +131,15 @@ func main() {
 		log.Fatalln(err)
 	}
 	go ReadData(c)
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go PersistData(c)
-	}
+	wg.Add(1)
+	go PersistData(c)
 	wg.Wait()
+	fmt.Println("ETL completed in", time.Now().Sub(start).Minutes(), "minutes")
+	fmt.Println("Loaded", recordCount, "records")
 	sanityCheck, err := checkKnownValue()
 	if err != nil {
 		log.Println(err)
 	}
 	fmt.Println(sanityCheck)
-	fmt.Println("ETL completed in", time.Now().Sub(start).Seconds(), "seconds")
-	http.HandleFunc("/query", storage.QueryHandler)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
 	return
 }

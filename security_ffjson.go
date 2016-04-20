@@ -273,12 +273,12 @@ func (mj *Security) MarshalJSONBuf(buf fflib.EncodingBuffer) error {
 	_ = err
 	buf.WriteString(`{ `)
 	if len(mj.LegalEntityID) != 0 {
-		buf.WriteString(`"LegalEntityID":`)
+		buf.WriteString(`"LegalEntityId":`)
 		fflib.WriteJsonString(buf, string(mj.LegalEntityID))
 		buf.WriteByte(',')
 	}
 	if len(mj.CUSIP) != 0 {
-		buf.WriteString(`"CUSIP":`)
+		buf.WriteString(`"Cusip":`)
 		fflib.WriteJsonString(buf, string(mj.CUSIP))
 		buf.WriteByte(',')
 	}
@@ -288,7 +288,7 @@ func (mj *Security) MarshalJSONBuf(buf fflib.EncodingBuffer) error {
 		buf.WriteByte(',')
 	}
 	if len(mj.SEDOL) != 0 {
-		buf.WriteString(`"SEDOL":`)
+		buf.WriteString(`"Sedol":`)
 		fflib.WriteJsonString(buf, string(mj.SEDOL))
 		buf.WriteByte(',')
 	}
@@ -324,13 +324,13 @@ const (
 	ffj_t_Security_Description
 )
 
-var ffj_key_Security_LegalEntityID = []byte("LegalEntityID")
+var ffj_key_Security_LegalEntityID = []byte("LegalEntityId")
 
-var ffj_key_Security_CUSIP = []byte("CUSIP")
+var ffj_key_Security_CUSIP = []byte("Cusip")
 
 var ffj_key_Security_ISIN = []byte("ISIN")
 
-var ffj_key_Security_SEDOL = []byte("SEDOL")
+var ffj_key_Security_SEDOL = []byte("Sedol")
 
 var ffj_key_Security_Ticker = []byte("Ticker")
 

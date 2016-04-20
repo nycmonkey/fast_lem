@@ -129,10 +129,10 @@ func New(cusip, isin, sedol, ticker, entityID, issueTypeCode, coupon,
 }
 
 type Security struct {
-	LegalEntityID string `json:",omitempty"`
-	CUSIP         string `json:",omitempty"`
+	LegalEntityID string `json:"LegalEntityId,omitempty"`
+	CUSIP         string `json:"Cusip,omitempty"`
 	ISIN          string `json:",omitempty"`
-	SEDOL         string `json:",omitempty"`
+	SEDOL         string `json:"Sedol,omitempty"`
 	Ticker        string `json:",omitempty"`
 	Description   string `json:",omitempty"`
 }

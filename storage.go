@@ -14,7 +14,8 @@ import (
 
 // Getter looks up details of Securities by ID
 type Getter interface {
-	Get(keys ...string) (*Response, error)
+	Get(keys ...string) ([]*Security, error)
+	QueryHandler(w http.ResponseWriter, r *http.Request)
 }
 
 // Storer persits Security details
@@ -26,11 +27,14 @@ type Storer interface {
 type Storage interface {
 	Getter
 	Storer
-	QueryHandler(w http.ResponseWriter, r *http.Request)
 }
 
 type boltPersistance struct {
 	db *bolt.DB
+}
+
+func NewGetter(db *bolt.DB) Getter {
+	return &boltPersistance{db: db}
 }
 
 // NewStorage returns a Security database ready to use
@@ -71,47 +75,72 @@ func encodeSecurity(s *Security) []byte {
 }
 
 // Store persists a batch of Securities
-func (bp *boltPersistance) Store(securities chan *Security) {
+func (bp *boltPersistance) Store(c chan *Security) {
+	batchSize := 10000
+	i := 0
+	donkey := make([]*Security, batchSize)
+	for s := range c {
+		if i >= len(donkey) {
+			fmt.Println("i:", i, "len(donkey):", len(donkey))
+		}
+		donkey[i] = s
+		if i == batchSize-1 {
+			bp.storeBatch(donkey)
+			i = -1
+		}
+		i++
+	}
+	if i > 0 {
+		bp.storeBatch(donkey[0:i])
+	}
+}
+
+func (bp *boltPersistance) storeBatch(batch []*Security) {
 	var err error
-	for sec := range securities {
-		data := encodeSecurity(sec)
-		err = bp.persist([]byte(DetailsBucket), []byte(sec.CUSIP), data)
-		if err != nil {
-			panic(err)
-		}
-		if len(sec.ISIN) > 0 {
-			err = bp.persist([]byte(IsinBucket), []byte(sec.ISIN), []byte(sec.CUSIP))
+	err = bp.db.Update(func(tx *bolt.Tx) error {
+		cb := tx.Bucket([]byte(DetailsBucket))
+		ib := tx.Bucket([]byte(IsinBucket))
+		sb := tx.Bucket([]byte(SedolBucket))
+		for _, sec := range batch {
+			data := encodeSecurity(sec)
+			err = cb.Put([]byte(sec.CUSIP), data)
 			if err != nil {
-				panic(err)
+				return err
+			}
+			if len(sec.ISIN) == 12 {
+				err = ib.Put([]byte(sec.ISIN), []byte(sec.CUSIP))
+				if err != nil {
+					return err
+				}
+			}
+			if len(sec.SEDOL) == 7 {
+				err = sb.Put([]byte(sec.SEDOL), []byte(sec.CUSIP))
+				if err != nil {
+					return err
+				}
 			}
 		}
-		if len(sec.SEDOL) > 0 {
-			err = bp.persist([]byte(SedolBucket), []byte(sec.SEDOL), []byte(sec.CUSIP))
-			if err != nil {
-				panic(err)
-			}
-		}
+		return nil
+	})
+	if err != nil {
+		panic(err)
 	}
 	return
 }
 
-func (bp *boltPersistance) persist(b, k, v []byte) error {
-	return bp.db.Batch(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(b)
-		return bucket.Put(k, v)
-	})
-}
-
 // Get "hydrates" security details from one or more identifiers
-func (bp *boltPersistance) Get(keys ...string) (response *Response, err error) {
-	response = NewResponse()
+func (bp *boltPersistance) Get(keys ...string) (response []*Security, err error) {
+	size := len(keys)
+	response = make([]*Security, size)
+	i := 0
 	for _, k := range keys {
 		var s *Security
 		s, err = bp.get(k)
 		if err != nil {
 			return
 		}
-		response.Results[k] = s
+		response[i] = s
+		i++
 	}
 	return
 }
@@ -161,7 +190,7 @@ func (bp *boltPersistance) QueryHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	var response *Response
+	var response []*Security
 	response, err = bp.Get(req.Keys...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -177,5 +206,3 @@ func (bp *boltPersistance) QueryHandler(w http.ResponseWriter, r *http.Request) 
 	w.Write(js)
 	return
 }
-
-
