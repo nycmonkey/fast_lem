@@ -59,7 +59,8 @@ const (
 	ColumnMaturityDate
 )
 
-func ReadData(c chan []*fast_lem.Security) {
+// ReadData reads Security data from source and pushes batches 
+func ReadData(c chan *fast_lem.Security) {
 	data, err := os.Open(source)
 	if err != nil {
 		log.Fatalln(err)
@@ -72,8 +73,6 @@ func ReadData(c chan []*fast_lem.Security) {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	batch := make([]*fast_lem.Security, batchSize, batchSize)
-	i := 0
 	for {
 		row, err = r.Read()
 		if err != nil {
@@ -90,41 +89,27 @@ func ReadData(c chan []*fast_lem.Security) {
 			row[ColumnIssueType],
 			row[ColumnCouponRate],
 			row[ColumnMaturityDate])
-		batch[i] = security
-		if i == batchSize-1 {
-			c <- batch
-			i = 0
-		}
-		i++
-	}
-	if i > 0 {
-		c <- batch[0:i]
+		c <- security
 	}
 	close(c)
+	return
 }
 
-func PersistData(c chan []*fast_lem.Security) {
-	var err error
-	for securities := range c {
-		err = storage.Store(securities...)
-		if err != nil {
-			log.Fatalln(err)
-		}
-	}
+// PersistData stores Securities in batches
+func PersistData(c chan *fast_lem.Security) {
+	storage.Store(c)
 	wg.Done()
 	return
 }
 
 func checkKnownValue() (string, error) {
-	var ISIN = `US003554K355`
-	var EntityID = `071S60-E`
+	var ISIN = `US00037NMH60`
+	var EntityID = `06L3Q8-E`
 	response, err := storage.Get(ISIN)
-	log.Printf("response: %+v\n", response)
 	if err != nil {
 		return "", err
 	}
 	security := response.Results[ISIN]
-	log.Printf("security: %+v\n", security)
 	if security.LegalEntityID != EntityID {
 		return "", errors.New("Unexpected entity ID: " + security.LegalEntityID)
 	}
@@ -132,7 +117,8 @@ func checkKnownValue() (string, error) {
 }
 
 func main() {
-	c := make(chan []*fast_lem.Security, 2)
+	start := time.Now()
+	c := make(chan *fast_lem.Security, 100000)
 	var db *bolt.DB
 	var err error
 	db, err = bolt.Open(dbfile, 0600, &bolt.Options{Timeout: 1 * time.Second})
@@ -144,15 +130,18 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	wg.Add(1)
-	go PersistData(c)
 	go ReadData(c)
-	wg.Wait()
-	sanity_check, err := checkKnownValue()
-	if err != nil {
-		log.Fatalln(err)
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go PersistData(c)
 	}
-	fmt.Println(sanity_check)
+	wg.Wait()
+	sanityCheck, err := checkKnownValue()
+	if err != nil {
+		log.Println(err)
+	}
+	fmt.Println(sanityCheck)
+	fmt.Println("ETL completed in", time.Now().Sub(start).Seconds(), "seconds")
 	http.HandleFunc("/query", storage.QueryHandler)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
 	return
