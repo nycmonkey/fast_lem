@@ -12,7 +12,6 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/nycmonkey/fast_lem"
-	"io/ioutil"
 )
 
 var (
@@ -122,14 +121,10 @@ func main() {
 	c := make(chan *fast_lem.Security, 20000)
 	var db *bolt.DB
 	var err error
-	var tmp *os.File
-	tmp, err = ioutil.TempFile("", "edm-security-etl")
-	tmp.Close()
-	db, err = bolt.Open(tmp.Name(), 0600, &bolt.Options{Timeout: 1 * time.Second})
+	db, err = bolt.Open(dbfile, 0600, &bolt.Options{Timeout: 1 * time.Second})
 	if err != nil {
 		log.Fatalln(err)
 	}
-	defer os.Remove(tmp.Name())
 	defer db.Close()
 	storage, err = fast_lem.NewStorage(db)
 	if err != nil {
@@ -139,16 +134,6 @@ func main() {
 	wg.Add(1)
 	go PersistData(c)
 	wg.Wait()
-	var f *os.File
-	f, err = os.Create(dbfile)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer f.Close()
-	err = db.View(func(tx *bolt.Tx) error {
-		_, err = tx.WriteTo(f)
-		return err
-	})
 	fmt.Println("ETL completed in", time.Now().Sub(start).Minutes(), "minutes")
 	fmt.Println("Loaded", recordCount, "records")
 	sanityCheck, err := checkKnownValue()

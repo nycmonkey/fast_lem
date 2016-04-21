@@ -78,20 +78,20 @@ func encodeSecurity(s *Security) []byte {
 func (bp *boltPersistance) Store(c chan *Security) {
 	batchSize := 10000
 	i := 0
-	donkey := make([]*Security, batchSize)
+	batch := make([]*Security, batchSize)
 	for s := range c {
-		if i >= len(donkey) {
-			fmt.Println("i:", i, "len(donkey):", len(donkey))
+		if i >= len(batch) {
+			fmt.Println("i:", i, "len(batch):", len(batch))
 		}
-		donkey[i] = s
+		batch[i] = s
 		if i == batchSize-1 {
-			bp.storeBatch(donkey)
+			bp.storeBatch(batch)
 			i = -1
 		}
 		i++
 	}
 	if i > 0 {
-		bp.storeBatch(donkey[0:i])
+		bp.storeBatch(batch[0:i])
 	}
 }
 
@@ -101,6 +101,9 @@ func (bp *boltPersistance) storeBatch(batch []*Security) {
 		cb := tx.Bucket([]byte(DetailsBucket))
 		ib := tx.Bucket([]byte(IsinBucket))
 		sb := tx.Bucket([]byte(SedolBucket))
+		cb.FillPercent = 0.9
+		ib.FillPercent = 0.9
+		sb.FillPercent = 0.9
 		for _, sec := range batch {
 			data := encodeSecurity(sec)
 			err = cb.Put([]byte(sec.CUSIP), data)
