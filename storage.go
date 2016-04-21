@@ -15,7 +15,6 @@ import (
 // Getter looks up details of Securities by ID
 type Getter interface {
 	Get(keys ...string) ([]*Security, error)
-	QueryHandler(w http.ResponseWriter, r *http.Request)
 }
 
 // Storer persits Security details
@@ -180,7 +179,11 @@ func (bp *boltPersistance) get(key string) (s *Security, err error) {
 	return
 }
 
-func (bp *boltPersistance) QueryHandler(w http.ResponseWriter, r *http.Request) {
+type Server struct {
+	Getter
+}
+
+func (s Server) QueryHandler(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	data, err := ioutil.ReadAll(r.Body)
 	if len(data) == 0 {
@@ -194,7 +197,7 @@ func (bp *boltPersistance) QueryHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var response []*Security
-	response, err = bp.Get(req.Keys...)
+	response, err = s.Get(req.Keys...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -57,7 +57,8 @@ func main() {
 		log.Fatalln(err)
 	}
 	fmt.Println(sanityCheck)
-	http.HandleFunc("/query", storage.QueryHandler)
+	server := fast_lem.Server{storage}
+	http.HandleFunc("/query", server.QueryHandler)
 	listen := fmt.Sprintf(":%d", port)
 	fmt.Println("Listening on", listen)
 	log.Fatal(http.ListenAndServe(listen, nil))
