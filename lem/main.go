@@ -46,7 +46,7 @@ func checkKnownValue() (string, error) {
 func main() {
 	var db *bolt.DB
 	var err error
-	db, err = bolt.Open(dbfile, 0600, &bolt.Options{Timeout: 1 * time.Second})
+	db, err = bolt.Open(dbfile, 0666, &bolt.Options{Timeout: 1 * time.Second, ReadOnly: true})
 	if err != nil {
 		log.Fatalln("Error opening db:", err)
 	}

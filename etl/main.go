@@ -12,6 +12,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/nycmonkey/fast_lem"
+	"io/ioutil"
 )
 
 var (
@@ -36,23 +37,23 @@ const (
 )
 
 const (
-	ColumnCUSIP = iota // 0
-	ColumnISIN
-	ColumnSEDOL
-	ColumnTicker
+	colCUSIP = iota // 0
+	colISIN
+	colSEDOL
+	colTicker
 	_ // FS_PERM_SEC_ID
-	ColumnEntityID
+	colEntityID
 	_ // SECURITY_NAME
 	_ // ISO_COUNTRY
-	ColumnIssueType
+	colIssueType
 	_ // FDS_PRIMARY_MIC_EXCHANGE_CODE
 	_ // INCEPTION_DATE
 	_ // TERMINATION_DATE
 	_ // CAP_GROUP
 	_ // FDS_PRIMARY_ISO_CURRENCY
 	_ // CIC_CODE
-	ColumnCouponRate
-	ColumnMaturityDate
+	colCouponRate
+	colMaturityDate
 )
 
 // ReadData reads Security data from source and pushes batches
@@ -78,14 +79,14 @@ func ReadData(c chan *fast_lem.Security) {
 			log.Fatalln(err)
 		}
 		recordCount++
-		security := fast_lem.New(row[ColumnCUSIP],
-			row[ColumnISIN],
-			row[ColumnSEDOL],
-			row[ColumnTicker],
-			row[ColumnEntityID],
-			row[ColumnIssueType],
-			row[ColumnCouponRate],
-			row[ColumnMaturityDate])
+		security := fast_lem.New(row[colCUSIP],
+			row[colISIN],
+			row[colSEDOL],
+			row[colTicker],
+			row[colEntityID],
+			row[colIssueType],
+			row[colCouponRate],
+			row[colMaturityDate])
 		c <- security
 	}
 	close(c)
@@ -121,10 +122,14 @@ func main() {
 	c := make(chan *fast_lem.Security, 20000)
 	var db *bolt.DB
 	var err error
-	db, err = bolt.Open(dbfile, 0600, &bolt.Options{Timeout: 1 * time.Second})
+	var tmp *os.File
+	tmp, err = ioutil.TempFile("", "edm-security-etl")
+	tmp.Close()
+	db, err = bolt.Open(tmp.Name(), 0600, &bolt.Options{Timeout: 1 * time.Second})
 	if err != nil {
 		log.Fatalln(err)
 	}
+	defer os.Remove(tmp.Name())
 	defer db.Close()
 	storage, err = fast_lem.NewStorage(db)
 	if err != nil {
@@ -134,6 +139,16 @@ func main() {
 	wg.Add(1)
 	go PersistData(c)
 	wg.Wait()
+	var f *os.File
+	f, err = os.Create(dbfile)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer f.Close()
+	err = db.View(func(tx *bolt.Tx) error {
+		_, err = tx.WriteTo(f)
+		return err
+	})
 	fmt.Println("ETL completed in", time.Now().Sub(start).Minutes(), "minutes")
 	fmt.Println("Loaded", recordCount, "records")
 	sanityCheck, err := checkKnownValue()
